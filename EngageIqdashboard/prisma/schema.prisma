@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Social media accounts
+  instagramAccounts InstagramAccount[]
+  youtubeAccounts    YouTubeAccount[]
+  twitterAccounts    TwitterAccount[]
+
+  // Reports
+  reports Report[]
+
+  @@map("users")
+}
+
+model InstagramAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  username     String
+  accessToken  String
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Posts and metrics
+  posts InstagramPost[]
+
+  @@map("instagram_accounts")
+}
+
+model InstagramPost {
+  id          String   @id @default(cuid())
+  accountId   String
+  postId      String   @unique
+  caption     String?
+  mediaType   String   // image, video, carousel, reel
+  mediaUrl    String?
+  thumbnailUrl String?
+  permalink   String?
+  timestamp   DateTime
+  likesCount  Int      @default(0)
+  commentsCount Int    @default(0)
+  sharesCount Int      @default(0)
+  savesCount  Int      @default(0)
+  viewsCount  Int?     @default(0)
+  reachCount  Int?     @default(0)
+  engagementRate Float @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  account InstagramAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("instagram_posts")
+}
+
+model YouTubeAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  channelId    String
+  channelTitle String
+  accessToken  String
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Videos and metrics
+  videos YouTubeVideo[]
+
+  @@map("youtube_accounts")
+}
+
+model YouTubeVideo {
+  id           String   @id @default(cuid())
+  accountId    String
+  videoId      String   @unique
+  title        String
+  description  String?
+  thumbnailUrl String?
+  publishedAt  DateTime
+  duration     String?
+  viewsCount   Int      @default(0)
+  likesCount   Int      @default(0)
+  commentsCount Int     @default(0)
+  sharesCount  Int      @default(0)
+  subscriberGained Int  @default(0)
+  engagementRate Float @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  account YouTubeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("youtube_videos")
+}
+
+model TwitterAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  username     String
+  accessToken  String
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Tweets and metrics
+  tweets TwitterTweet[]
+
+  @@map("twitter_accounts")
+}
+
+model TwitterTweet {
+  id          String   @id @default(cuid())
+  accountId   String
+  tweetId     String   @unique
+  text        String?
+  createdAt   DateTime
+  likesCount  Int      @default(0)
+  retweetsCount Int    @default(0)
+  repliesCount Int     @default(0)
+  quotesCount Int      @default(0)
+  viewsCount  Int?     @default(0)
+  engagementRate Float @default(0)
+  updatedAt   DateTime @updatedAt
+
+  account TwitterAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("twitter_tweets")
+}
+
+model Report {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  type        String   // weekly, monthly, custom
+  startDate   DateTime
+  endDate     DateTime
+  data        Json     // Serialized report data
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reports")
+}
+
+model Analytics {
+  id          String   @id @default(cuid())
+  userId      String
+  platform    String   // instagram, youtube, twitter
+  metricType  String   // engagement, reach, growth, etc.
+  date        DateTime
+  value       Float
+  metadata    Json?    // Additional metric data
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, platform, metricType, date])
+  @@map("analytics")
+}
