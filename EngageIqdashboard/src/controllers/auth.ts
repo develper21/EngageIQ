@@ -1,14 +1,19 @@
 import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../lib/prisma'
-import { generateToken } from '../middleware/auth'
+import { generateToken, generateRefreshToken } from '../middleware/auth'
+import { encryption } from '../lib/encryption'
 
 export const register = async (req: Request, res: Response) => {
   try {
     const { email, password, name } = req.body
 
+    // Validation is handled by middleware, but double-check
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' })
+      return res.status(400).json({ 
+        error: 'Email and password are required',
+        code: 'MISSING_FIELDS'
+      })
     }
 
     // Check if user already exists
@@ -17,11 +22,15 @@ export const register = async (req: Request, res: Response) => {
     })
 
     if (existingUser) {
-      return res.status(400).json({ error: 'User already exists' })
+      return res.status(409).json({ 
+        error: 'User already exists',
+        code: 'USER_EXISTS'
+      })
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10)
+    // Hash password with stronger salt rounds
+    const saltRounds = 12
+    const hashedPassword = await bcrypt.hash(password, saltRounds)
 
     // Create user
     const user = await prisma.user.create({
@@ -38,17 +47,35 @@ export const register = async (req: Request, res: Response) => {
       }
     })
 
-    // Generate token
+    // Generate tokens
     const token = generateToken(user.id, user.email)
+    const refreshToken = generateRefreshToken(user.id)
+
+    // Store refresh token securely (in production, store in database)
+    // For now, we'll include it in response (implement proper storage)
 
     res.status(201).json({
       message: 'User created successfully',
       user,
-      token
+      token,
+      refreshToken,
+      expiresIn: '24h'
     })
   } catch (error) {
     console.error('Registration error:', error)
-    res.status(500).json({ error: 'Failed to create user' })
+    
+    // Handle specific database errors
+    if (error.code === 'P2002') {
+      return res.status(409).json({ 
+        error: 'User already exists',
+        code: 'DUPLICATE_EMAIL'
+      })
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to create user',
+      code: 'REGISTRATION_FAILED'
+    })
   }
 }
 
@@ -56,28 +83,37 @@ export const login = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' })
-    }
-
     // Find user
     const user = await prisma.user.findUnique({
       where: { email }
     })
 
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' })
+      return res.status(401).json({ 
+        error: 'Invalid credentials',
+        code: 'INVALID_CREDENTIALS'
+      })
     }
 
     // Check password
     const isValidPassword = await bcrypt.compare(password, user.password)
 
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' })
+      return res.status(401).json({ 
+        error: 'Invalid credentials',
+        code: 'INVALID_CREDENTIALS'
+      })
     }
 
-    // Generate token
+    // Generate tokens
     const token = generateToken(user.id, user.email)
+    const refreshToken = generateRefreshToken(user.id)
+
+    // Update last login
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { updatedAt: new Date() }
+    })
 
     res.json({
       message: 'Login successful',
@@ -87,19 +123,32 @@ export const login = async (req: Request, res: Response) => {
         name: user.name,
         createdAt: user.createdAt
       },
-      token
+      token,
+      refreshToken,
+      expiresIn: '24h'
     })
   } catch (error) {
     console.error('Login error:', error)
-    res.status(500).json({ error: 'Failed to login' })
+    res.status(500).json({ 
+      error: 'Failed to login',
+      code: 'LOGIN_FAILED'
+    })
   }
 }
 
 export const getProfile = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user
+    
+    if (!user || !user.userId) {
+      return res.status(401).json({ 
+        error: 'Invalid authentication',
+        code: 'INVALID_AUTH'
+      })
+    }
+
     const userProfile = await prisma.user.findUnique({
-      where: { id: user.id },
+      where: { id: user.userId },
       select: {
         id: true,
         email: true,
@@ -110,12 +159,21 @@ export const getProfile = async (req: Request, res: Response) => {
     })
 
     if (!userProfile) {
-      return res.status(404).json({ error: 'User not found' })
+      return res.status(404).json({ 
+        error: 'User not found',
+        code: 'USER_NOT_FOUND'
+      })
     }
 
-    res.json({ user: userProfile })
+    res.json({ 
+      user: userProfile,
+      timestamp: new Date().toISOString()
+    })
   } catch (error) {
     console.error('Get profile error:', error)
-    res.status(500).json({ error: 'Failed to get profile' })
+    res.status(500).json({ 
+      error: 'Failed to get profile',
+      code: 'PROFILE_FETCH_FAILED'
+    })
   }
 }
